@@ -485,7 +485,13 @@ class Dumpstate {
   private:
     RunStatus RunInternal(int32_t calling_uid, const std::string& calling_package);
 
-    void CheckUserConsent(int32_t calling_uid, const android::String16& calling_package);
+    void DumpstateTelephonyAndBoardOnly(int32_t calling_uid, const std::string& calling_package);
+
+    void DumpstateWifiOnly(int32_t calling_uid, const std::string& calling_package);
+
+    RunStatus DumpstateDefault(int32_t calling_uid, const std::string& calling_package);
+
+    void CheckUserConsent(int32_t calling_uid, const std::string& calling_package);
 
     // Removes the in progress files output files (tmp file, zip/txt file, screenshot),
     // but leaves the log file alone.

@@ -136,6 +136,10 @@ static char cmdline_buf[16384] = "(unknown)";
 static const char *dump_traces_path = nullptr;
 static const uint64_t USER_CONSENT_TIMEOUT_MS = 30 * 1000;
 
+/* values to pass around when consent isn't needed */
+static const int CONSENT_EXEMPTED_CALLING_UID = -1;
+static const std::string CONSENT_EXEMPTED_CALLING_PKG = "";
+
 // TODO: variables and functions below should be part of dumpstate object
 
 static std::set<std::string> mount_points;
@@ -1529,10 +1533,15 @@ static Dumpstate::RunStatus dumpstate() {
  * Returns RunStatus::USER_DENIED_CONSENT if user explicitly denied consent to sharing the bugreport
  * with the caller.
  */
-static Dumpstate::RunStatus DumpstateDefault() {
+Dumpstate::RunStatus Dumpstate::DumpstateDefault(int32_t calling_uid,
+                                                 const std::string& calling_package) {
     // Invoking the following dumpsys calls before DumpTraces() to try and
     // keep the system stats as close to its initial state as possible.
-    RUN_SLOW_FUNCTION_WITH_CONSENT_CHECK(RunDumpsysCritical);
+    RunDumpsysCritical();
+
+    // Run consent check only after critical dumpsys has finished -- so the consent isn't going to
+    // pollute the system state / logs.
+    CheckUserConsent(calling_uid, calling_package);
 
     // Capture first logcat early on; useful to take a snapshot before dumpstate logs take over the
     // buffer.
@@ -1616,8 +1625,11 @@ static void DumpstateRadioCommon() {
 }
 
 // This method collects dumpsys for telephony debugging only
-static void DumpstateTelephonyOnly() {
+void Dumpstate::DumpstateTelephonyAndBoardOnly(int32_t calling_uid,
+                                               const std::string& calling_package) {
     DurationReporter duration_reporter("DUMPSTATE");
+    CheckUserConsent(calling_uid, calling_package);
+
     const CommandOptions DUMPSYS_COMPONENTS_OPTIONS = CommandOptions::WithTimeout(60).Build();
 
     DumpstateRadioCommon();
@@ -1662,11 +1674,15 @@ static void DumpstateTelephonyOnly() {
     printf("========================================================\n");
     printf("== dumpstate: done (id %d)\n", ds.id_);
     printf("========================================================\n");
+
+    DumpstateBoard();
 }
 
 // This method collects dumpsys for wifi debugging only
-static void DumpstateWifiOnly() {
+void Dumpstate::DumpstateWifiOnly(int32_t calling_uid,
+                                  const std::string& calling_package) {
     DurationReporter duration_reporter("DUMPSTATE");
+    CheckUserConsent(calling_uid, calling_package);
 
     DumpstateRadioCommon();
 
@@ -2532,12 +2548,6 @@ Dumpstate::RunStatus Dumpstate::RunInternal(int32_t calling_uid,
         return RunStatus::OK;
     }
 
-    if (options_->bugreport_fd.get() != -1) {
-        // If the output needs to be copied over to the caller's fd, get user consent.
-        android::String16 package(calling_package.c_str());
-        CheckUserConsent(calling_uid, package);
-    }
-
     // Redirect output if needed
     bool is_redirecting = options_->OutputToFile();
 
@@ -2683,14 +2693,21 @@ Dumpstate::RunStatus Dumpstate::RunInternal(int32_t calling_uid,
     // duration is logged into MYLOG instead.
     PrintHeader();
 
+    int calling_uid_for_consent = CONSENT_EXEMPTED_CALLING_UID;
+    std::string calling_pkg_for_consent = CONSENT_EXEMPTED_CALLING_PKG;
+    if (ds.options_->bugreport_fd.get() != -1) {
+        // If the output needs to be copied over to the caller's fd, get user consent.
+        calling_uid_for_consent = calling_uid;
+        calling_pkg_for_consent = calling_package;
+    }
+
     if (options_->telephony_only) {
-        DumpstateTelephonyOnly();
-        DumpstateBoard();
+        DumpstateTelephonyAndBoardOnly(calling_uid_for_consent, calling_pkg_for_consent);
     } else if (options_->wifi_only) {
-        DumpstateWifiOnly();
+        DumpstateWifiOnly(calling_uid_for_consent, calling_pkg_for_consent);
     } else {
         // Dump state for the default case. This also drops root.
-        RunStatus s = DumpstateDefault();
+        RunStatus s = DumpstateDefault(calling_uid_for_consent, calling_pkg_for_consent);
         if (s != RunStatus::OK) {
             if (s == RunStatus::USER_CONSENT_DENIED) {
                 HandleUserConsentDenied();
@@ -2781,14 +2798,19 @@ Dumpstate::RunStatus Dumpstate::RunInternal(int32_t calling_uid,
                : RunStatus::OK;
 }
 
-void Dumpstate::CheckUserConsent(int32_t calling_uid, const android::String16& calling_package) {
+void Dumpstate::CheckUserConsent(int32_t calling_uid, const std::string& calling_package) {
+    if (calling_uid == CONSENT_EXEMPTED_CALLING_UID &&
+            calling_package == CONSENT_EXEMPTED_CALLING_PKG) {
+        return;
+    }
     consent_callback_ = new ConsentCallback();
     const String16 incidentcompanion("incidentcompanion");
     sp<android::IBinder> ics(defaultServiceManager()->getService(incidentcompanion));
+    android::String16 package(calling_package.c_str());
     if (ics != nullptr) {
         MYLOGD("Checking user consent via incidentcompanion service\n");
         android::interface_cast<android::os::IIncidentCompanion>(ics)->authorizeReport(
-            calling_uid, calling_package, String16(), String16(),
+            calling_uid, package, String16(), String16(),
             0x1 /* FLAG_CONFIRMATION_DIALOG */, consent_callback_.get());
     } else {
         MYLOGD("Unable to check user consent; incidentcompanion service unavailable\n");
@@ -2861,7 +2883,7 @@ Dumpstate::RunStatus Dumpstate::ParseCommandlineAndRun(int argc, char* argv[]) {
         // calling_uid and calling_package are for user consent to share the bugreport with
         // an app; they are irrelvant here because bugreport is only written to a local
         // directory, and not shared.
-        status = Run(-1 /* calling_uid */, "" /* calling_package */);
+        status = Run(CONSENT_EXEMPTED_CALLING_UID, CONSENT_EXEMPTED_CALLING_PKG);
     }
     return status;
 }
