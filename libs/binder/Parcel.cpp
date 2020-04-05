@@ -129,6 +129,7 @@ void acquire_object(const sp<ProcessState>& proc,
             return;
         }
         case BINDER_TYPE_FD: {
+#if 0
             if ((obj.cookie != 0) && (outAshmemSize != NULL) && ashmem_valid(obj.handle)) {
                 // If we own an ashmem fd, keep track of how much memory it refers to.
                 int size = ashmem_get_size_region(obj.handle);
@@ -136,6 +137,7 @@ void acquire_object(const sp<ProcessState>& proc,
                     *outAshmemSize += size;
                 }
             }
+#endif
             return;
         }
     }
@@ -178,12 +180,14 @@ static void release_object(const sp<ProcessState>& proc,
         }
         case BINDER_TYPE_FD: {
             if (obj.cookie != 0) { // owned
+#if 0
                 if ((outAshmemSize != NULL) && ashmem_valid(obj.handle)) {
                     int size = ashmem_get_size_region(obj.handle);
                     if (size > 0) {
                         *outAshmemSize -= size;
                     }
                 }
+#endif
 
                 close(obj.handle);
             }
@@ -1214,6 +1218,8 @@ status_t Parcel::writeBlob(size_t len, bool mutableCopy, WritableBlob* outBlob)
     }
 
     ALOGV("writeBlob: write to ashmem");
+    return NO_ERROR;
+#if 0
     int fd = ashmem_create_region("Parcel Blob", len);
     if (fd < 0) return NO_MEMORY;
 
@@ -1245,6 +1251,7 @@ status_t Parcel::writeBlob(size_t len, bool mutableCopy, WritableBlob* outBlob)
     }
     ::close(fd);
     return status;
+#endif
 }
 
 status_t Parcel::writeDupImmutableBlobFileDescriptor(int fd)

@@ -31,7 +31,9 @@
 #include <binder/Parcel.h>
 #include <log/log.h>
 
+#if 0
 #include <utils/CallStack.h>
+#endif
 #include <utils/KeyedVector.h>
 #include <utils/threads.h>
 
@@ -264,7 +266,9 @@ BpMemoryHeap::~BpMemoryHeap() {
                 if (VERBOSE) {
                     ALOGD("UNMAPPING binder=%p, heap=%p, size=%zu, fd=%d",
                             binder.get(), this, mSize, heapId);
+#if 0
                     CallStack stack(LOG_TAG);
+#endif
                 }
 
                 munmap(mBase, mSize);

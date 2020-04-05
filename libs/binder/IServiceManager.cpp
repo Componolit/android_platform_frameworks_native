@@ -27,7 +27,9 @@
 #include <cutils/properties.h>
 #include <utils/String8.h>
 #include <utils/SystemClock.h>
+#if 0
 #include <utils/CallStack.h>
+#endif
 
 #include <private/binder/Static.h>
 
@@ -163,7 +165,9 @@ public:
             n++;
             if (isVendorService) {
                 ALOGI("Waiting for vendor service %s...", String8(name).string());
+#if 0
                 CallStack stack(LOG_TAG);
+#endif
             } else if (n%10 == 0) {
                 ALOGI("Waiting for service %s...", String8(name).string());
             }
