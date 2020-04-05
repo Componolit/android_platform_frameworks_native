@@ -26,6 +26,8 @@
 
 #include <pthread.h>
 
+#include <gneiss_memory_client.h>
+
 // ---------------------------------------------------------------------------
 namespace android {
 
@@ -92,7 +94,7 @@ private:
             handle_entry*       lookupHandleLocked(int32_t handle);
 
             String8             mDriverName;
-            int                 mDriverFD;
+            bool                mDriverInitialized;
             void*               mVMStart;
 
             // Protects thread count variable below.

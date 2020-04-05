@@ -406,7 +406,7 @@ void IPCThreadState::clearCaller()
 
 void IPCThreadState::flushCommands()
 {
-    if (mProcess->mDriverFD <= 0)
+    if (!mProcess->mDriverInitialized)
         return;
     talkWithDriver(false);
     // The flush could have caused post-write refcount decrements to have
@@ -538,8 +538,8 @@ void IPCThreadState::joinThreadPool(bool isMain)
         result = getAndExecuteCommand();
 
         if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
-            ALOGE("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
-                  mProcess->mDriverFD, result);
+            ALOGE("getAndExecuteCommand() returned unexpected error %d, aborting",
+                  result);
             abort();
         }
 
@@ -559,13 +559,8 @@ void IPCThreadState::joinThreadPool(bool isMain)
 
 int IPCThreadState::setupPolling(int* fd)
 {
-    if (mProcess->mDriverFD <= 0) {
-        return -EBADF;
-    }
-
-    mOut.writeInt32(BC_ENTER_LOOPER);
-    *fd = mProcess->mDriverFD;
-    return 0;
+    ALOGE("IPCThreadState::setupPolling() unsupported");
+    return -EBADF;
 }
 
 status_t IPCThreadState::handlePolledCommands()
@@ -585,10 +580,8 @@ void IPCThreadState::stopProcess(bool /*immediate*/)
 {
     //ALOGI("**** STOPPING PROCESS");
     flushCommands();
-    int fd = mProcess->mDriverFD;
-    mProcess->mDriverFD = -1;
-    close(fd);
-    //kill(getpid(), SIGKILL);
+    mProcess->mDriverInitialized = false;
+    // FIXME: Close sessions
 }
 
 status_t IPCThreadState::transact(int32_t handle,
@@ -851,7 +844,7 @@ finish:
 
 status_t IPCThreadState::talkWithDriver(bool doReceive)
 {
-    if (mProcess->mDriverFD <= 0) {
+    if (!mProcess->mDriverInitialized) {
         return -EBADF;
     }
 
@@ -901,7 +894,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
         IF_LOG_COMMANDS() {
             alog << "About to read/write, write size = " << mOut.dataSize() << endl;
         }
-#if defined(__ANDROID__)
+#if 0 // FIXME: Send message to parpen
         if (ioctl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
             err = NO_ERROR;
         else
@@ -909,7 +902,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
 #else
         err = INVALID_OPERATION;
 #endif
-        if (mProcess->mDriverFD <= 0) {
+        if (!mProcess->mDriverInitialized) {
             err = -EBADF;
         }
         IF_LOG_COMMANDS() {
@@ -1197,7 +1190,7 @@ void IPCThreadState::threadDestructor(void *st)
         IPCThreadState* const self = static_cast<IPCThreadState*>(st);
         if (self) {
                 self->flushCommands();
-#if defined(__ANDROID__)
+#if 0 // FIXME
         if (self->mProcess->mDriverFD > 0) {
             ioctl(self->mProcess->mDriverFD, BINDER_THREAD_EXIT, 0);
         }

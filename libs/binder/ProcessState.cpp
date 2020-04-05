@@ -170,22 +170,8 @@ bool ProcessState::isContextManager(void) const
 
 bool ProcessState::becomeContextManager(context_check_func checkFunc, void* userData)
 {
-    if (!mManagesContexts) {
-        AutoMutex _l(mLock);
-        mBinderContextCheckFunc = checkFunc;
-        mBinderContextUserData = userData;
-
-        int dummy = 0;
-        status_t result = ioctl(mDriverFD, BINDER_SET_CONTEXT_MGR, &dummy);
-        if (result == 0) {
-            mManagesContexts = true;
-        } else if (result == -1) {
-            mBinderContextCheckFunc = NULL;
-            mBinderContextUserData = NULL;
-            ALOGE("Binder ioctl to become context manager failed: %s\n", strerror(errno));
-        }
-    }
-    return mManagesContexts;
+    ALOGW("Becoming context manager unsupported with GART");
+    return false;
 }
 
 // Get references to userspace objects held by the kernel binder driver
@@ -196,36 +182,8 @@ bool ProcessState::becomeContextManager(context_check_func checkFunc, void* user
 // already be invalid.
 ssize_t ProcessState::getKernelReferences(size_t buf_count, uintptr_t* buf)
 {
-    // TODO: remove these when they are defined by bionic's binder.h
-    struct binder_node_debug_info {
-        binder_uintptr_t ptr;
-        binder_uintptr_t cookie;
-        __u32 has_strong_ref;
-        __u32 has_weak_ref;
-    };
-#define BINDER_GET_NODE_DEBUG_INFO _IOWR('b', 11, struct binder_node_debug_info)
-
-    binder_node_debug_info info = {};
-
-    uintptr_t* end = buf ? buf + buf_count : NULL;
-    size_t count = 0;
-
-    do {
-        status_t result = ioctl(mDriverFD, BINDER_GET_NODE_DEBUG_INFO, &info);
-        if (result < 0) {
-            return -1;
-        }
-        if (info.ptr != 0) {
-            if (buf && buf < end)
-                *buf++ = info.ptr;
-            count++;
-            if (buf && buf < end)
-                *buf++ = info.cookie;
-            count++;
-        }
-    } while (info.ptr != 0);
-
-    return count;
+    ALOGW("getKernelReferences not implemented in GART");
+    return -1;
 }
 
 ProcessState::handle_entry* ProcessState::lookupHandleLocked(int32_t handle)
@@ -360,14 +318,9 @@ void ProcessState::spawnPooledThread(bool isMain)
 }
 
 status_t ProcessState::setThreadPoolMaxThreadCount(size_t maxThreads) {
-    status_t result = NO_ERROR;
-    if (ioctl(mDriverFD, BINDER_SET_MAX_THREADS, &maxThreads) != -1) {
-        mMaxThreads = maxThreads;
-    } else {
-        result = -errno;
-        ALOGE("Binder ioctl to set max threads failed: %s", strerror(-result));
-    }
-    return result;
+    ALOGW("setThreadPoolMaxThreadCount not implemented");
+    mMaxThreads = maxThreads;
+    return NO_ERROR;
 }
 
 void ProcessState::giveThreadPoolName() {
@@ -378,37 +331,9 @@ String8 ProcessState::getDriverName() {
     return mDriverName;
 }
 
-static int open_driver(const char *driver)
-{
-    int fd = open(driver, O_RDWR | O_CLOEXEC);
-    if (fd >= 0) {
-        int vers = 0;
-        status_t result = ioctl(fd, BINDER_VERSION, &vers);
-        if (result == -1) {
-            ALOGE("Binder ioctl to obtain version failed: %s", strerror(errno));
-            close(fd);
-            fd = -1;
-        }
-        if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {
-          ALOGE("Binder driver protocol(%d) does not match user space protocol(%d)! ioctl() return value: %d",
-                vers, BINDER_CURRENT_PROTOCOL_VERSION, result);
-            close(fd);
-            fd = -1;
-        }
-        size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;
-        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);
-        if (result == -1) {
-            ALOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
-        }
-    } else {
-        ALOGW("Opening '%s' failed: %s\n", driver, strerror(errno));
-    }
-    return fd;
-}
-
 ProcessState::ProcessState(const char *driver)
     : mDriverName(String8(driver))
-    , mDriverFD(open_driver(driver))
+    , mDriverInitialized(false)
     , mVMStart(MAP_FAILED)
     , mThreadCountLock(PTHREAD_MUTEX_INITIALIZER)
     , mThreadCountDecrement(PTHREAD_COND_INITIALIZER)
@@ -421,30 +346,12 @@ ProcessState::ProcessState(const char *driver)
     , mThreadPoolStarted(false)
     , mThreadPoolSeq(1)
 {
-    if (mDriverFD >= 0) {
-        // mmap the binder, providing a chunk of virtual address space to receive transactions.
-        mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
-        if (mVMStart == MAP_FAILED) {
-            // *sigh*
-            ALOGE("Using %s failed: unable to mmap transaction memory.\n", mDriverName.c_str());
-            close(mDriverFD);
-            mDriverFD = -1;
-            mDriverName.clear();
-        }
-    }
-
-    LOG_ALWAYS_FATAL_IF(mDriverFD < 0, "Binder driver could not be opened.  Terminating.");
+    // FIXME: Initialized mVMStart
 }
 
 ProcessState::~ProcessState()
 {
-    if (mDriverFD >= 0) {
-        if (mVMStart != MAP_FAILED) {
-            munmap(mVMStart, BINDER_VM_SIZE);
-        }
-        close(mDriverFD);
-    }
-    mDriverFD = -1;
+    // FIXME: Disconnect
 }
         
 }; // namespace android
